@@ -12,13 +12,15 @@ from app.core.security import verify_password, create_access_token, decode_token
 router = APIRouter(prefix="/auth", tags=["auth"])
 bearer_scheme = HTTPBearer()
 
+
 # =========================
 # MODELOS
 # =========================
 
 class LoginRequest(BaseModel):
     correo: str = Field(..., description="Correo del usuario")
-    password: str = Field(..., min_length=1, description="Contraseña en texto plano (solo se envía para validar)")
+    password: str = Field(..., min_length=1, description="Contraseña en texto plano")
+
 
 # =========================
 # HELPERS
@@ -41,6 +43,7 @@ def _get_user_by_email(correo: str) -> Dict[str, Any]:
     finally:
         conn.close()
 
+
 def _get_user_by_id(id_usuario: int) -> Dict[str, Any]:
     conn = get_connection()
     try:
@@ -58,11 +61,14 @@ def _get_user_by_id(id_usuario: int) -> Dict[str, Any]:
     finally:
         conn.close()
 
+
 # =========================
 # DEPENDENCY (PROTECCIÓN)
 # =========================
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> Dict[str, Any]:
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)
+) -> Dict[str, Any]:
     token = credentials.credentials
     try:
         payload = decode_token(token)
@@ -79,6 +85,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_
 
     return user
 
+
 # =========================
 # ENDPOINTS
 # =========================
@@ -90,16 +97,20 @@ def login(payload: LoginRequest):
     if not user:
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    # Validar estado cuenta (según tu tabla estado_cuenta: 1=ACTIVO)
+    ESTADOS = {2: "INACTIVO", 3: "SUSPENDIDO", 4: "PENDIENTE"}
     if user.get("id_estado_cuenta") != 1:
-        raise HTTPException(status_code=403, detail="Cuenta no activa")
+        estado_nombre = ESTADOS.get(user["id_estado_cuenta"], "DESCONOCIDO")
+        raise HTTPException(
+            status_code=403,
+            detail=f"Cuenta no activa. Estado actual: {estado_nombre}"
+        )
 
     hashed = user.get("password_hash") or ""
-    # Si tu BD aún tiene "HASH_TEMPORA" u otro placeholder, esto fallará.
+
     if not hashed.startswith("$pbkdf2-sha256$"):
         raise HTTPException(
             status_code=500,
-            detail="El password_hash de este usuario no está migrado a PBKDF2. Actualiza password_hash."
+            detail="El password_hash no está migrado a PBKDF2. Contacta al administrador."
         )
 
     if not verify_password(payload.password, hashed):
@@ -110,17 +121,17 @@ def login(payload: LoginRequest):
         "id_rol": user["id_rol"]
     })
 
-    # devolver user sin password_hash
     user_public = {
-        "id_usuario": user["id_usuario"],
-        "id_rol": user["id_rol"],
+        "id_usuario":       user["id_usuario"],
+        "id_rol":           user["id_rol"],
         "id_estado_cuenta": user["id_estado_cuenta"],
-        "id_entidad": user["id_entidad"],
-        "nombre_completo": user["nombre_completo"],
-        "correo": user["correo"],
+        "id_entidad":       user["id_entidad"],
+        "nombre_completo":  user["nombre_completo"],
+        "correo":           user["correo"],
     }
 
     return {"access_token": token, "token_type": "bearer", "user": user_public}
+
 
 @router.get("/me", summary="Devuelve el usuario logueado (token)")
 def me(current_user: Dict[str, Any] = Depends(get_current_user)):

@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from app.db.database import get_connection
-from app.core.deps import get_current_user, require_roles
+from app.core.deps import require_roles
 import pymysql
 
 router = APIRouter(prefix="/entidades", tags=["Entidades"])
