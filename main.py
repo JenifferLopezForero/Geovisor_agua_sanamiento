@@ -10,6 +10,8 @@ from app.routers.notificaciones import router as notificaciones_router
 from app.routers.infraestructura import router as infraestructura_router
 from app.routers.usuarios import router as usuarios_router
 from app.routers import auditoria
+from app.routers.entidades import router as entidades_router
+
 
 app = FastAPI(
     title="Geovisor API - Agua y Saneamiento",
@@ -35,6 +37,7 @@ app.include_router(notificaciones_router)
 app.include_router(infraestructura_router)
 app.include_router(usuarios_router)
 app.include_router(auditoria.router)
+app.include_router(entidades_router)
 
 
 @app.get("/", tags=["Health"])
