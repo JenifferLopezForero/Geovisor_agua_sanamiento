@@ -31,8 +31,9 @@ class ReporteCreateRequest(BaseModel):
     id_severidad:      int  = Field(..., ge=1)
     descripcion:       str  = Field(..., min_length=1, max_length=5000)
     direccion:  Optional[str]   = Field(None, max_length=255)
-    latitud:    Optional[float] = None
-    longitud:   Optional[float] = None
+    latitud:  float = Field(..., ge=-90,  le=90,  description="Latitud entre -90 y 90")
+    longitud: float = Field(..., ge=-180, le=180, description="Longitud entre -180 y 180")
+
     imagen_url: Optional[str]   = Field(None, max_length=500)
     fuente_reporte: str = Field("CIUDADANO", max_length=50)
 
