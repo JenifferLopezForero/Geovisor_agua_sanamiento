@@ -101,10 +101,6 @@ def _select_reporte_detalle_sql() -> str:
 def _insertar_historial(cursor, id_reporte: int, estado_anterior: str,
                         estado_nuevo: str, id_usuario_accion: int,
                         comentario: Optional[str] = None):
-    """
-    Inserta un registro en historial_reportes.
-    Se llama tanto al CREAR un reporte como al CAMBIAR su estado.
-    """
     cursor.execute("""
         INSERT INTO historial_reportes
             (id_reporte, estado_anterior, estado_nuevo, comentario, id_usuario_accion, fecha_cambio)
@@ -114,7 +110,6 @@ def _insertar_historial(cursor, id_reporte: int, estado_anterior: str,
 
 def _insertar_notificacion(cursor, id_usuario: int, id_reporte: int,
                            tipo: str, mensaje: str):
-    """Inserta una notificación para el dueño del reporte."""
     cursor.execute("""
         INSERT INTO notificaciones
             (id_usuario, id_reporte, tipo_notificacion, mensaje, leida, fecha_envio)
@@ -125,6 +120,40 @@ def _insertar_notificacion(cursor, id_usuario: int, id_reporte: int,
 # =========================
 # ENDPOINTS
 # =========================
+
+# ✅ PRIMERO el endpoint /mapa (público, sin token)
+@router.get("/mapa", summary="Obtener reportes para el mapa (público)")
+def reportes_para_mapa():
+    conn = get_connection()
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    r.id_reporte,
+                    r.latitud,
+                    r.longitud,
+                    r.descripcion,
+                    r.direccion,
+                    ti.nombre AS tipo_incidente,
+                    s.nombre  AS severidad,
+                    er.nombre AS estado,
+                    r.fecha_reporte
+                FROM reportes r
+                JOIN tipo_incidente ti ON ti.id_tipo_incidente = r.id_tipo_incidente
+                JOIN severidad s       ON s.id_severidad       = r.id_severidad
+                JOIN estado_reporte er ON er.id_estado         = r.id_estado
+                WHERE r.latitud  != 0.0
+                  AND r.longitud != 0.0
+                ORDER BY r.fecha_reporte DESC
+            """)
+            puntos = cursor.fetchall()
+        return {
+            "total": len(puntos),
+            "puntos": puntos
+        }
+    finally:
+        conn.close()
+
 
 @router.get("/", summary="Listar Reportes")
 def listar_reportes(
@@ -217,7 +246,7 @@ def crear_reporte(
             if user["id_rol"] == ROLE_ENTIDAD and not id_entidad:
                 raise HTTPException(status_code=403, detail="Usuario ENTIDAD sin id_entidad asignado")
 
-            id_estado_inicial = 1  # PENDIENTE
+            id_estado_inicial = 1
             fuente = "CIUDADANO" if user["id_rol"] == ROLE_CIUDADANO else "ENTIDAD"
 
             cursor.execute("""
@@ -234,17 +263,15 @@ def crear_reporte(
             ))
             new_id = cursor.lastrowid
 
-            # ✅ REGISTRAR EN HISTORIAL: evento de creación
             _insertar_historial(
                 cursor,
                 id_reporte        = new_id,
-                estado_anterior   = "NINGUNO",   # no existía antes
-                estado_nuevo      = "PENDIENTE",  # estado inicial
+                estado_anterior   = "NINGUNO",
+                estado_nuevo      = "PENDIENTE",
                 id_usuario_accion = id_usuario_token,
                 comentario        = "Reporte creado por el usuario"
             )
 
-            # ✅ NOTIFICACIÓN: confirmación al creador
             _insertar_notificacion(
                 cursor,
                 id_usuario = id_usuario_token,
@@ -253,7 +280,6 @@ def crear_reporte(
                 mensaje    = "Tu reporte fue creado exitosamente y está en estado PENDIENTE"
             )
 
-            # Retornar el reporte recién creado con todos los datos
             sql = _select_reporte_detalle_sql() + " WHERE r.id_reporte = %s;"
             cursor.execute(sql, (new_id,))
             row = cursor.fetchone()
@@ -281,7 +307,6 @@ def cambiar_estado(
     conn = get_connection()
     try:
         with conn.cursor() as cursor:
-            # Obtener reporte actual con su estado actual
             cursor.execute("""
                 SELECT r.id_reporte, r.id_entidad, r.id_usuario,
                        er.nombre AS estado_actual
@@ -299,7 +324,6 @@ def cambiar_estado(
                 if rep.get("id_entidad") != user["id_entidad"]:
                     raise HTTPException(status_code=403, detail="No puedes modificar reportes de otra entidad")
 
-            # Obtener nombre del nuevo estado
             cursor.execute(
                 "SELECT nombre FROM estado_reporte WHERE id_estado = %s;",
                 (payload.id_estado_nuevo,)
@@ -309,13 +333,11 @@ def cambiar_estado(
                 raise HTTPException(status_code=400, detail="id_estado_nuevo no existe")
             nombre_estado_nuevo = nuevo_estado_row["nombre"]
 
-            # Actualizar estado del reporte
             cursor.execute(
                 "UPDATE reportes SET id_estado = %s, updated_at = NOW() WHERE id_reporte = %s;",
                 (payload.id_estado_nuevo, id_reporte),
             )
 
-            # ✅ REGISTRAR EN HISTORIAL: cambio de estado
             _insertar_historial(
                 cursor,
                 id_reporte        = id_reporte,
@@ -325,7 +347,6 @@ def cambiar_estado(
                 comentario        = payload.comentario
             )
 
-            # ✅ NOTIFICACIÓN: avisar al dueño del reporte
             _insertar_notificacion(
                 cursor,
                 id_usuario = rep["id_usuario"],
@@ -334,7 +355,6 @@ def cambiar_estado(
                 mensaje    = f"Tu reporte cambió a {nombre_estado_nuevo}"
             )
 
-            # Retornar reporte actualizado
             sql = _select_reporte_detalle_sql() + " WHERE r.id_reporte = %s;"
             cursor.execute(sql, (id_reporte,))
             row = cursor.fetchone()
